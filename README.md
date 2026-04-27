@@ -45,17 +45,17 @@ npx skills add Going2Custom/skills-ia/company-standards
 
 **Backend (NestJS)**
 ```bash
-claude skill install https://raw.githubusercontent.com/Going2Custom/skills-ia/main/nestjs-standards.skill
+claude skill install https://raw.githubusercontent.com/Going2Custom/skills-ia/main/nestjs-standards/SKILL.md
 ```
 
 **Frontend (Next.js)**
 ```bash
-claude skill install https://raw.githubusercontent.com/Going2Custom/skills-ia/main/nextjs-standards.skill
+claude skill install https://raw.githubusercontent.com/Going2Custom/skills-ia/main/nextjs-standards/SKILL.md
 ```
 
 **Ambos (pacote completo)**
 ```bash
-claude skill install https://raw.githubusercontent.com/Going2Custom/skills-ia/main/company-standards.skill
+claude skill install https://raw.githubusercontent.com/Going2Custom/skills-ia/main/company-standards/SKILL.md
 ```
 
 ---
@@ -72,31 +72,19 @@ O Claude vai seguir a estrutura de pastas, nomenclatura, padrões de entidade, D
 
 ---
 
-## Stack coberta
-
-### Backend
-- NestJS 11+ / TypeScript 5+
-- TypeORM + PostgreSQL
-- JWT + Passport + CASL
-- class-validator + class-transformer
-- @nestjs/swagger
-
-### Frontend
-- Next.js 16+ (App Router) / TypeScript 5+
-- shadcn/ui + Radix UI + Tailwind CSS 4+
-- React Hook Form + Zod
-- TanStack Query
-- NextAuth.js
-- Vitest + Cypress
-
----
-
 ## Estrutura do repositório
 
 ```
-.claude/skills/
-├── company-standards/   # Fonte da skill completa
-├── nestjs-standards/    # Fonte da skill de backend
-└── nextjs-standards/    # Fonte da skill de frontend
-*.skill                  # Pacotes prontos para instalação
+nestjs-standards/        # Skill de backend
+├── SKILL.md
+└── references/
+    └── nestjs.md
+nextjs-standards/        # Skill de frontend
+├── SKILL.md
+└── references/
+    └── nextjs.md
+company-standards/       # Skill completa (backend + frontend)
+├── SKILL.md
+└── references/
+    └── standards.md
 ```
