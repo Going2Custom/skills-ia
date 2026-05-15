@@ -7,7 +7,7 @@ Skills do Claude Code com os padrões de desenvolvimento da Going2. Instale em q
 | Skill | Descrição |
 |---|---|
 | `nestjs-standards` | Padrões de backend: entidades, DTOs, services, controllers, módulos |
-| `nextjs-standards` | Padrões de frontend: componentes, hooks, páginas, formulários, testes |
+| `nextjs-standards` | Padrões de frontend: componentes, hooks, páginas, formulários, testes e geração de código com Orval |
 | `company-standards` | As duas skills acima em um único pacote |
 
 ---

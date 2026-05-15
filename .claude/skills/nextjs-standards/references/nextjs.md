@@ -255,6 +255,101 @@ NEXT_PUBLIC_API_URL=
 
 ---
 
+## Orval — API Code Generation
+
+Orval generates TypeScript types, API functions, and TanStack Query hooks from the backend Swagger (OpenAPI) spec. **Always use generated code from `src/gen/` — never hand-write API types or fetch functions.**
+
+### Configuration (`orval.config.ts`)
+
+```typescript
+import { defineConfig } from 'orval';
+
+export default defineConfig({
+  api: {
+    input: {
+      target: process.env.NEXT_PUBLIC_API_URL + '/api-json',
+    },
+    output: {
+      mode: 'tags-split',
+      target: './src/gen/api.ts',
+      schemas: './src/gen/model',
+      client: 'react-query',
+      httpClient: 'axios',
+      override: {
+        mutator: {
+          path: './app/services/api.ts',
+          name: 'api',
+        },
+      },
+    },
+  },
+});
+```
+
+### Generated files (`src/gen/`)
+
+| File | Content |
+|---|---|
+| `api.ts` | API functions and TanStack Query hooks |
+| `api.zod.ts` | Zod schemas matching backend DTOs |
+| `model/` | TypeScript types for all entities and DTOs |
+
+### Using generated hooks in a component hook
+
+```typescript
+// components/(feature)/feature-list/useFeatureList.tsx
+import { useGetFeature } from '@/src/gen/api';
+
+export const useFeatureList = () => {
+  const { data, isLoading } = useGetFeature();
+
+  return { data: data?.data ?? [], isLoading };
+};
+```
+
+### Using generated mutation hooks
+
+```typescript
+// components/(feature)/feature-form/useFeatureForm.tsx
+import { useCreateFeature } from '@/src/gen/api';
+import { CreateFeatureDto } from '@/src/gen/model';
+import { toast } from 'sonner';
+
+export const useFeatureForm = () => {
+  const { mutateAsync, isPending } = useCreateFeature();
+
+  const onSubmit = async (data: CreateFeatureDto) => {
+    try {
+      toast.loading('Salvando...', { id: 'save' });
+      await mutateAsync({ data });
+      toast.success('Salvo com sucesso!', { id: 'save' });
+    } catch {
+      toast.error('Erro ao salvar.', { id: 'save' });
+    }
+  };
+
+  return { onSubmit, isPending };
+};
+```
+
+### Using generated Zod schemas in forms
+
+```typescript
+import { useCreateFeatureBody } from '@/src/gen/api.zod';
+
+const schema = useCreateFeatureBody();
+
+const form = useForm({
+  resolver: zodResolver(schema),
+});
+```
+
+### When to regenerate
+
+Run `pnpm orval` whenever the backend Swagger changes (new endpoints, updated DTOs, renamed fields). Commit the `src/gen/` changes together with the frontend code that uses them.
+
+---
+
 ## Useful Commands
 
 ```bash

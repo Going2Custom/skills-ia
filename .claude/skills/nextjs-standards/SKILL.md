@@ -25,6 +25,7 @@ description: >
 | Auth | NextAuth.js |
 | Unit Tests | Vitest + React Testing Library |
 | E2E Tests | Cypress |
+| API Code Gen | Orval (from Swagger → `src/gen/`) |
 
 Read the full patterns in `references/nextjs.md` before producing any code.
 
@@ -45,6 +46,7 @@ Read the full patterns in `references/nextjs.md` before producing any code.
 - Always use shadcn/ui components first — never raw HTML for UI elements
 - Never use `any` — type everything
 - Use `data-testid` attributes on all interactive elements for stable E2E selectors
+- **Always use generated code from `src/gen/`** — never hand-write API types, fetch functions, or Zod schemas that mirror backend DTOs; run `pnpm orval` to regenerate when the backend Swagger changes
 
 ## File naming
 
