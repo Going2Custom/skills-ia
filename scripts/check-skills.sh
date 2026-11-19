@@ -52,7 +52,7 @@ check_skill() {
   local all=("$skill")
   for ref in "$@"; do all+=("$dir/references/$ref"); done
 
-  forbid_regex '(NestJS|Next\.js|TypeScript|Tailwind( CSS)?|React|TypeORM|PostgreSQL|Node(\.js)?) v?[0-9]+(\.[0-9]+)*\+?([^0-9./-]|$)' "${all[@]}"
+  forbid_regex '(NestJS|Next\.js|TypeScript|Tailwind( CSS)?|React|TypeORM|PostgreSQL|Node(\.js)?) v?[0-9]+(\.[0-9]+)*\+?([^0-9./-]|\.([^0-9]|$)|$)' "${all[@]}"
   forbid_regex ':[[:space:]]*any([^a-zA-Z]|$)|<any>|as any' "${all[@]}"
   forbid_regex 'deletedAt: null|claude skill install|is required'"'" "${all[@]}"
 }
