@@ -1,0 +1,29 @@
+{
+  "skill_name": "going2-frontend",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Quero criar um componente de listagem de usuários no frontend Next.js, com busca por nome e paginação. O componente se chama UserList.",
+      "expected_output": "components/(users)/user-list/index.tsx com 'use client' e só JSX (shadcn Table, data-testid, estados loading/vazio/erro) e useUserList.tsx usando o hook gerado pelo Orval em src/gen; page e search na URL via nuqs (useQueryStates com parseAsInteger/parseAsString, throttle na busca, page volta a 1 ao buscar); testes Vitest do hook com adapter de testes do nuqs e do componente; menção à cobertura de 80%.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Cria um formulário de cadastro de clientes com campos: nome, email e telefone. Usa os padrões do projeto para validação e feedback de erro/sucesso.",
+      "expected_output": "useClientForm com useForm + zodResolver usando o schema Zod gerado pelo Orval (não escrito à mão), mutation gerada pelo Orval, toast.loading/success/error com o mesmo id e textos específicos em português; JSX com Form, FormField, FormItem, FormLabel, FormMessage, autocomplete nos campos, botão desabilitado só durante o envio; testes.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Adiciona um botão de excluir pedido na tabela de pedidos.",
+      "expected_output": "Botão de ícone com aria-label, AlertDialog de confirmação, mutation gerada pelo Orval, toasts com o mesmo id, invalidação da query da listagem, data-testid, lógica no hook e não no index.tsx; teste do fluxo.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Depois do login, redireciona o usuário para a página que ele tentou acessar antes (callbackUrl).",
+      "expected_output": "Validação do callbackUrl aceitando só caminho relativo ou mesma origem (callback redirect do NextAuth), sem open redirect; token mantido na sessão NextAuth e nunca em localStorage; nenhum segredo em NEXT_PUBLIC_*; teste cobrindo callbackUrl externo sendo rejeitado.",
+      "files": []
+    }
+  ]
+}

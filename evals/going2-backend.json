@@ -1,0 +1,29 @@
+{
+  "skill_name": "going2-backend",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Preciso criar um módulo de 'products' no backend NestJS com nome, preço e categoria (relacionamento com categories). Cria tudo seguindo os padrões da empresa.",
+      "expected_output": "Entity ProductEntity estendendo EntityBase, tabela 'products', @Index() em category_id, unique parcial com deleted_at IS NULL se houver campo único; CreateProductDto/UpdateProductDto com @ApiProperty e mensagens em português; ProductResponseDto com fromEntity; service com findAndCount e take limitado a 100, NotFoundException em português; controller com PoliciesGuard, ApiBearerAuth, ApiTags, ParseUUIDPipe e @ApiOkResponse({ type: ProductResponseDto }); module; product.service.spec.ts cobrindo sucesso, não encontrado e permissão; menção a coverageThreshold 80%.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Cria um endpoint PUT /invoices/:id para o usuário logado editar a própria fatura.",
+      "expected_output": "Service busca com where { id, ownerId: user.id } (ou checagem CASL na instância) e lança NotFoundException quando a fatura é de outro usuário; DTO de update sem ownerId/status privilegiado; ParseUUIDPipe; ValidationPipe com whitelist/forbidNonWhitelisted; teste cobrindo tentativa de editar fatura de outro usuário.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Implementa o login com email e senha no backend.",
+      "expected_output": "Hash com argon2id (ou bcrypt custo >= 12); mensagem genérica 'Credenciais inválidas' para usuário inexistente e senha errada; @Throttle restritivo na rota; JWT com segredo via ConfigService e expiração; password com select: false e nunca na resposta; testes do service de auth.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Adiciona um endpoint de listagem de pedidos com filtro por status e ordenação escolhida pelo cliente.",
+      "expected_output": "Query DTO com @Type(() => Number) para page/perPage e allowlist para campo de ordenação e direção; QueryBuilder com parâmetros nomeados, sem interpolação; take limitado a 100 e order determinístico; leftJoinAndSelect explícito sem eager; resposta paginada com DTO tipado no Swagger; testes.",
+      "files": []
+    }
+  ]
+}
