@@ -48,36 +48,51 @@ export function isSafeHref(url: string): boolean {
 
 ## 3. Redirect só para destino permitido
 
-`callbackUrl` e `next` vêm da query string e são controlados pelo atacante. Aceite só caminho relativo ou a própria origem, tanto no Auth.js quanto no código que redireciona.
+`callbackUrl` e `next` vêm da query string e são controlados pelo atacante. Comparar prefixo (`startsWith('/')`) não basta: `/\evil.com` e `/\t/evil.com` são normalizados pelo parser de URL para `//evil.com`. Use um único helper que rejeita barra invertida e caracteres de controle, resolve a URL contra a origem e só devolve caminho local.
+
+```ts
+// lib/safe-redirect.ts
+export function getSafeRedirect(raw: string, origin: string): string {
+  if (/[\\\u0000-\u001f\u007f]/.test(raw)) return '/';
+  try {
+    const url = new URL(raw, origin);
+    if (url.origin !== origin) return '/';
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return '/';
+  }
+}
+```
+
+Use o helper no callback do Auth.js, caindo para `baseUrl` quando o destino não for aceito:
 
 ```ts
 // auth.ts
+import { getSafeRedirect } from '@/lib/safe-redirect';
+
 callbacks: {
   async redirect({ url, baseUrl }) {
-    if (url.startsWith('/') && !url.startsWith('//')) return `${baseUrl}${url}`;
-    if (new URL(url).origin === baseUrl) return url;
-    return baseUrl;
+    const safe = getSafeRedirect(url, baseUrl);
+    return `${baseUrl}${safe}`;
   },
 },
 ```
 
-Ao usar o parâmetro manualmente, valide com a mesma regra:
+E em todo código que redireciona a partir do parâmetro:
 
 ```tsx
 // errado
 router.push(searchParams.get('callbackUrl') ?? '/');
 
 // certo
-const callbackUrl = searchParams.get('callbackUrl');
-const target = callbackUrl?.startsWith('/') && !callbackUrl.startsWith('//') ? callbackUrl : '/';
-router.push(target);
+router.push(getSafeRedirect(searchParams.get('callbackUrl') ?? '/', window.location.origin));
 ```
 
-Conferido na documentação atual do Auth.js: a assinatura é `redirect({ url, baseUrl })` e deve retornar a URL final.
+Conferido na documentação atual do Auth.js: a assinatura é `redirect({ url, baseUrl })` e deve retornar a URL final. O helper nunca lança, então uma URL malformada não vira erro 500.
 
 ## 4. Tokens na sessão, nunca em `localStorage`
 
-`localStorage` é legível por qualquer script da página: um XSS leva o token. A sessão do Auth.js fica em cookie `httpOnly`, `Secure` e `SameSite`. Exponha ao cliente só o necessário no callback `session`.
+`localStorage` é legível por qualquer script da página: um XSS leva o token. A sessão do Auth.js fica em cookie `httpOnly`, `Secure` e `SameSite`. O callback `session` devolve ao cliente só `id`, `name`, `email` e `role`; o `role` serve apenas para UX (regra 5).
 
 ```ts
 // errado
@@ -100,19 +115,47 @@ callbacks: {
 },
 ```
 
-O `session` devolve para o cliente só `id`, `name`, `email` e `role`. O `role` serve apenas para UX (regra 5). O mutator do Axios em `patterns.md` não envia o token; o jeito mais simples é um interceptor que lê a sessão com `getSession()` (de `next-auth/react`):
+O mutator do Axios em `patterns.md` não envia o token, e o padrão é que ele nunca chegue ao JavaScript do cliente. Duas formas, ambas lendo o token com `auth()` no servidor (ajuste ao boilerplate):
+
+- Route Handler como proxy: o cliente chama `/api/proxy/...` (mesma origem, cookie de sessão), o handler lê o token da sessão e repassa à API com `Authorization`.
+- Chamada feita no servidor (Server Action ou Route Handler) que repassa o token.
+
+```ts
+// app/api/proxy/[...path]/route.ts
+import { auth } from '@/auth';
+
+export async function GET(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
+  const session = await auth();
+  if (!session) return Response.json({ message: 'Não autenticado' }, { status: 401 });
+
+  const { path } = await params;
+  const { search } = new URL(request.url);
+  return fetch(`${process.env.API_URL}/${path.join('/')}${search}`, {
+    headers: { Authorization: `Bearer ${session.accessToken}` },
+  });
+}
+```
+
+Aponte o `baseURL` do `AXIOS_INSTANCE` para `/api/proxy` nesse modelo. Aqui `session.accessToken` é lido no servidor a partir do JWT; ele só chega ao cliente se o callback `session` o repassar (não repasse).
+
+**Nota de hardening (trade-off):** se o boilerplate já chama a API direto do navegador com Bearer, o token precisa estar na sessão do cliente. Isso o deixa legível por scripts da página (um XSS o leva), então prefira o proxy. Se mantiver o interceptor, o callback `session` passa a repassar `session.accessToken = token.accessToken`, e a sessão é cacheada em vez de buscada a cada request:
 
 ```ts
 import { getSession } from 'next-auth/react';
 
+let cachedToken: string | undefined;
+let cachedAt = 0;
+const TOKEN_TTL_MS = 60_000;
+
 AXIOS_INSTANCE.interceptors.request.use(async (config) => {
-  const session = await getSession();
-  if (session?.accessToken) config.headers.Authorization = `Bearer ${session.accessToken}`;
+  if (Date.now() - cachedAt > TOKEN_TTL_MS) {
+    cachedToken = (await getSession())?.accessToken;
+    cachedAt = Date.now();
+  }
+  if (cachedToken) config.headers.Authorization = `Bearer ${cachedToken}`;
   return config;
 });
 ```
-
-Isso exige que o callback `session` repasse `accessToken` ao cliente, o que o deixa legível por scripts da página (mas não persistido em storage). Se o projeto puder, prefira um Route Handler/proxy no servidor que lê o token com `auth()` e chama a API, mantendo o token fora do JS do cliente. Ajuste ao boilerplate do projeto.
 
 ## 5. Autorização é do backend
 
@@ -148,17 +191,20 @@ Em Route Handler, use `safeParse` e responda `400` com mensagem em português; s
 
 ## 7. Headers de segurança e CSP
 
-Configure em `next.config.ts`. A CSP não usa `unsafe-eval`, bloqueia embutir o site em iframe (`frame-ancestors 'none'`) e limita origens.
+Configure em `next.config.ts`. A CSP não usa `unsafe-eval` em produção, bloqueia plugins (`object-src 'none'`), impede embutir o site em iframe (`frame-ancestors 'none'`) e limita origens.
 
 ```ts
 import type { NextConfig } from 'next';
 
+const isDev = process.env.NODE_ENV === 'development';
+
 const contentSecurityPolicy = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   `connect-src 'self' ${process.env.NEXT_PUBLIC_API_URL ?? ''}`,
+  "object-src 'none'",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -182,7 +228,9 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 ```
 
-O `'unsafe-inline'` em `script-src` é o ponto de partida porque o Next injeta scripts inline; endureça com CSP por nonce (middleware gerando o nonce e lendo `x-nonce` no layout) assim que o projeto permitir, e trate isso como nota de hardening. Libere só as origens externas realmente usadas (analytics, fontes). Teste em `pnpm build && pnpm start`, pois o dev usa regras mais frouxas.
+Os mesmos headers valem no `next dev`, e as ferramentas de desenvolvimento do React precisam de `'unsafe-eval'`; por isso ele entra em `script-src` só quando `isDev` é verdadeiro e nunca no build de produção. Se `img-src` precisar de imagens externas (CDN, avatar), liste cada host explicitamente.
+
+O `'unsafe-inline'` em `script-src` é o ponto de partida porque o Next injeta scripts inline; endureça com CSP por nonce (middleware gerando o nonce e lendo `x-nonce` no layout) assim que o projeto permitir, e trate isso como nota de hardening. Libere só as origens externas realmente usadas (analytics, fontes). Valide a CSP final com `pnpm build && pnpm start`.
 
 ## 8. Dependências e código gerado
 

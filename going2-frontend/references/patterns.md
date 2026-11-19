@@ -32,7 +32,7 @@ export function FeatureList() {
           <Button onClick={list.onRetry} data-testid="feature-list-retry">Tentar novamente</Button>
         </div>
       ) : list.isLoading ? (
-        <p aria-live="polite">Carregando...</p>
+        <p aria-live="polite">Carregando…</p>
       ) : list.features.length === 0 ? (
         <p data-testid="feature-list-empty">Nenhuma funcionalidade encontrada.</p>
       ) : (
@@ -147,7 +147,7 @@ export const useFeatureForm = () => {
   });
 
   const onSubmit = async (values: FeatureFormValues) => {
-    toast.loading('Salvando...', { id: TOAST_ID });
+    toast.loading('Salvando…', { id: TOAST_ID });
     try {
       await mutateAsync({ data: values });
       await queryClient.invalidateQueries({ queryKey: getListFeaturesQueryKey() });
@@ -191,7 +191,7 @@ export function FeatureForm() {
           )}
         />
         <Button type="submit" disabled={isSubmitting} data-testid="feature-form-submit">
-          {isSubmitting ? 'Salvando...' : 'Salvar'}
+          {isSubmitting ? 'Salvando…' : 'Salvar'}
         </Button>
       </form>
     </Form>
