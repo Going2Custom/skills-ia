@@ -6,6 +6,33 @@ Aplique estas regras enquanto escreve o código; o checklist de auto-revisão fi
 
 Use um guard global que nega por padrão e um decorator `@Public()` explícito, com justificativa, para as raras rotas abertas. Revise também os caminhos paralelos da mesma operação (bulk, export, importação), que costumam escapar da checagem.
 
+Autenticação global (ajuste ao boilerplate se já existir):
+
+```typescript
+export const IS_PUBLIC_KEY = 'isPublic';
+export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
+
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('jwt') {
+  constructor(private readonly reflector: Reflector) {
+    super();
+  }
+
+  canActivate(context: ExecutionContext) {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    return isPublic ? true : super.canActivate(context);
+  }
+}
+
+// app.module.ts
+providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
+```
+
+O `PoliciesGuard` depende de `req.user`, preenchido pelo `JwtAuthGuard`; guards globais rodam antes dos de controller, então a ordem já fica certa.
+
 ```typescript
 // errado: rota sem guard, aberta por esquecimento
 @Get('export')
@@ -44,7 +71,7 @@ if (!feature) throw new NotFoundException('Registro não encontrado');
 
 // certo: CASL na instância (feature é um FeatureEntity carregado do banco)
 if (!ability.can(Action.Update, feature)) {
-  throw new ForbiddenException('Sem permissão para alterar este registro');
+  throw new NotFoundException('Registro não encontrado');
 }
 ```
 
@@ -79,10 +106,10 @@ Nunca use `${}` em `query()`, `.where()` ou `orderBy`. Valores vão por parâmet
 
 ```typescript
 // errado
-await this.dataSource.query(`SELECT * FROM feature WHERE name = '${name}'`);
+await this.dataSource.query(`SELECT * FROM features WHERE name = '${name}'`);
 
 // certo
-await this.dataSource.query('SELECT * FROM feature WHERE name = $1', [name]);
+await this.dataSource.query('SELECT * FROM features WHERE name = $1', [name]);
 ```
 
 ## 5. Respostas só via response DTO
@@ -112,28 +139,42 @@ Quando o usuário não existe, ainda assim faça um `argon2.verify` contra um ha
 
 ## 7. JWT
 
-Fixe o algoritmo, valide `exp`, leia o segredo da config e nunca use `decode` sem `verify`. No `validate()` da strategy, recarregue o usuário do banco e rejeite se ele estiver inativo ou removido.
+Fixe o algoritmo, valide `exp`, leia o segredo da config e nunca use `decode` sem `verify`. Quem verifica o token nas rotas é a `JwtStrategy` do Passport (não o `JwtModule`), então o algoritmo é fixado nela. No `validate()`, recarregue o usuário do banco e rejeite se ele estiver inativo ou removido.
 
 ```typescript
 // errado
 const payload = this.jwtService.decode(token);
 
-// certo
+// certo: emissão
 JwtModule.registerAsync({
   inject: [ConfigService],
   useFactory: (config: ConfigService) => ({
     secret: config.getOrThrow<string>('JWT_SECRET'),
     signOptions: { algorithm: 'HS256', expiresIn: '15m' },
-    verifyOptions: { algorithms: ['HS256'] },
   }),
 });
 
-async validate(payload: JwtPayload): Promise<AuthUser> {
-  const user = await this.userService.findActiveById(payload.sub);
-  if (!user) throw new UnauthorizedException('Sessão inválida');
-  return { id: user.id };
+// certo: verificação
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(config: ConfigService, private readonly userService: UserService) {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      secretOrKey: config.getOrThrow<string>('JWT_SECRET'),
+      algorithms: ['HS256'],
+      ignoreExpiration: false,
+    });
+  }
+
+  async validate(payload: JwtPayload): Promise<AuthUser> {
+    const user = await this.userService.findActiveById(payload.sub);
+    if (!user) throw new UnauthorizedException('Sessão inválida');
+    return { id: user.id };
+  }
 }
 ```
+
+`Strategy` e `ExtractJwt` vêm de `passport-jwt`; o retorno de `validate()` vira `req.user`.
 
 ## 8. Segredos só em variáveis de ambiente
 
@@ -206,7 +247,7 @@ catch (error) {
 }
 
 if (config.get<string>('NODE_ENV') !== 'production') {
-  SwaggerModule.setup('docs', app, document);
+  SwaggerModule.setup('api', app, document);
 }
 ```
 
@@ -245,9 +286,12 @@ private assertAllowedUrl(input: string): URL {
   }
   return url;
 }
+
+const url = this.assertAllowedUrl(dto.webhookUrl);
+await this.httpService.axiosRef.post(url.toString(), payload, { maxRedirects: 0, timeout: 5_000 });
 ```
 
-Para SSRF completo, também bloqueie IPs privados e de metadata da cloud na resolução de DNS.
+`maxRedirects: 0` é obrigatório: sem ele, um host permitido responde `302` para um IP interno e o Axios segue o redirect sem passar pela allowlist. O `timeout` impede que um destino lento segure a requisição. Para SSRF completo, também bloqueie IPs privados e de metadata da cloud na resolução de DNS.
 
 ---
 

@@ -50,9 +50,10 @@ src/[feature]/
 ├── dto/
 │   ├── create-[feature].dto.ts
 │   ├── update-[feature].dto.ts
-│   └── [feature]-response.dto.ts
+│   ├── [feature]-query.dto.ts
+│   ├── [feature]-response.dto.ts
+│   └── [feature]-page-response.dto.ts
 ├── interfaces/
-├── repositories/
 ├── [feature].controller.ts
 ├── [feature].controller.spec.ts
 ├── [feature].service.ts
@@ -68,7 +69,8 @@ src/[feature]/
 - Nunca apagar de verdade: soft delete via `deleted_at` do `EntityBase` (`softDelete`). Não filtrar `deletedAt` no `where`, o TypeORM já exclui os removidos.
 - Nunca usar `any`; tipar tudo.
 - Todo campo de DTO tem `@ApiProperty` e decorators do class-validator com mensagem em português.
-- Controllers usam `@UseGuards(PoliciesGuard)`, `@ApiBearerAuth()` e `@ApiTags()`.
+- Controllers usam `@UseGuards(PoliciesGuard)`, `@ApiBearerAuth()` e `@ApiTags()`; a autenticação vem do `JwtAuthGuard` global (`APP_GUARD`), que roda antes.
+- Todo `@ApiOperation` tem `operationId` em camelCase (`listFeatures`, `getFeature`, `createFeature`...): é dele que o Orval do frontend tira o nome dos hooks.
 - Services lançam exceções do Nest: `NotFoundException`, `ForbiddenException`, `BadRequestException`, `ConflictException`.
 - Controllers retornam o response DTO (`dto/[feature]-response.dto.ts`), declarado em `@ApiOkResponse({ type })`. Nunca retornar a entity crua.
 - Todo parâmetro `:id` usa `ParseUUIDPipe`.
@@ -98,20 +100,20 @@ src/[feature]/
 
 Detalhes e exemplos em `references/security.md`.
 
-1. Toda rota autenticada e autorizada via CASL, deny by default; `@Public()` só explícito e justificado; revise caminhos paralelos (bulk, export).
+1. Toda rota autenticada (`JwtAuthGuard` global) e autorizada via CASL, deny by default; `@Public()` só explícito e justificado; revise caminhos paralelos (bulk, export).
 2. Evite IDOR: busque filtrando por dono/tenant ou use `ability.can(action, subject(entity))` na instância.
 3. `ValidationPipe` com `whitelist`; DTOs separados; `role`, `ownerId` e `isAdmin` nunca no DTO público.
 4. Nunca use `${}` em `query()`, `.where()` ou `orderBy`; sempre parâmetros.
 5. Responda via response DTO; `password` com `select: false`.
 6. Senhas com argon2id ou bcrypt de custo 12 ou mais; login com mensagem genérica.
-7. JWT com algoritmo fixo, `exp` validado, segredo via config, nunca decode sem verify; `validate()` recarrega o usuário.
+7. JWT com algoritmo fixo na `JwtStrategy` (`algorithms: ['HS256']`), `exp` validado, segredo via config, nunca decode sem verify; `validate()` recarrega o usuário.
 8. Segredos só em variáveis de ambiente; `.env` no `.gitignore`.
 9. `@nestjs/throttler` em login, reset de senha e rotas caras; limite de tamanho do body; paginação com teto.
 10. CORS com allowlist; nunca refletir `Origin` com credentials.
 11. `helmet()` ativo.
 12. Erros fail-closed: sem stack trace ou erro SQL na resposta; Swagger e debug fechados em produção.
 13. Logs sem senha, token ou PII; registre eventos de auth e negações.
-14. URLs e redirects vindos do usuário passam por allowlist (open redirect, SSRF).
+14. URLs e redirects vindos do usuário passam por allowlist (open redirect, SSRF); request de saída com `maxRedirects: 0` e `timeout`.
 
 ## Checklist de auto-revisão
 

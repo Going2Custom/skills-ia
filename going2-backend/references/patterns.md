@@ -10,7 +10,7 @@ import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { UserEntity } from '@/users/user.entity';
 
 @Entity('features')
-@Index(['name'], { unique: true, where: '"deleted_at" IS NULL' })
+@Index(['ownerId', 'name'], { unique: true, where: '"deleted_at" IS NULL' })
 export class FeatureEntity extends EntityBase {
   @Column({ length: 255 })
   name: string;
@@ -30,7 +30,7 @@ export class FeatureEntity extends EntityBase {
 
 - Sempre estender `EntityBase` (fornece `id`, `created_at`, `updated_at`, `deleted_at`).
 - Tabela em `snake_case` e no plural; coluna com `{ name: 'snake_case' }` e propriedade em `camelCase`.
-- Toda FK tem `@Index()`; unique com soft delete é parcial. Detalhes em `database.md`.
+- Toda FK tem `@Index()`; unique com soft delete é parcial e, com dados por dono, inclui `ownerId` (o nome se repete entre donos). Detalhes em `database.md`.
 
 ## DTOs
 
@@ -39,7 +39,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateFeatureDto {
-  @ApiProperty({ maxLength: 255 })
+  @ApiProperty({ minLength: 1, maxLength: 255 })
   @IsNotEmpty({ message: 'O nome é obrigatório' })
   @IsString({ message: 'O nome deve ser um texto' })
   @MaxLength(255, { message: 'O nome deve ter no máximo 255 caracteres' })
@@ -52,15 +52,27 @@ export class CreateFeatureDto {
 }
 ```
 
-```typescript
-import { PartialType } from '@nestjs/swagger';
-import { CreateFeatureDto } from './create-feature.dto';
-
-export class UpdateFeatureDto extends PartialType(CreateFeatureDto) {}
-```
+`dto/update-feature.dto.ts`: `export class UpdateFeatureDto extends PartialType(CreateFeatureDto) {}`, com `PartialType` de `@nestjs/swagger` (mantém a documentação).
 
 - `ownerId`, `role` e `isAdmin` nunca entram no DTO de entrada: o dono vem do usuário autenticado.
 - Mensagens em português, fixas, sem interpolar input do usuário.
+- Mensagens do class-validator não vão para o OpenAPI; as restrições sim. Declare `minLength: 1` e `maxLength` (igual à coluna) no `@ApiProperty` de todo texto obrigatório, para o schema Zod gerado no frontend rejeitar `''`.
+
+`dto/feature-query.dto.ts` — filtros da listagem:
+
+```typescript
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { PageQueryDto } from '@/common/paginations/page-query.dto';
+
+export class FeatureQueryDto extends PageQueryDto {
+  @ApiPropertyOptional({ maxLength: 100 })
+  @IsOptional()
+  @IsString({ message: 'A busca deve ser um texto' })
+  @MaxLength(100, { message: 'A busca deve ter no máximo 100 caracteres' })
+  search?: string;
+}
+```
 
 ## Response DTO
 
@@ -85,7 +97,7 @@ export class FeatureResponseDto {
 }
 ```
 
-Resposta paginada:
+Resposta paginada, `dto/feature-page-response.dto.ts`:
 
 ```typescript
 import { ApiProperty } from '@nestjs/swagger';
@@ -117,13 +129,13 @@ import { CheckPolicies } from '@/casl/decorators/check-policies.decorator';
 import { Action } from '@/casl/action.enum';
 import { CurrentUser } from '@/auth/decorators/current-user.decorator';
 import { AuthUser } from '@/auth/interfaces/auth-user.interface';
-import { PageQueryDto } from '@/common/paginations/page-query.dto';
 import { FeatureService } from './feature.service';
 import { FeatureEntity } from './feature.entity';
 import { CreateFeatureDto } from './dto/create-feature.dto';
 import { UpdateFeatureDto } from './dto/update-feature.dto';
 import { FeatureResponseDto } from './dto/feature-response.dto';
 import { FeaturePageResponseDto } from './dto/feature-page-response.dto';
+import { FeatureQueryDto } from './dto/feature-query.dto';
 
 @UseGuards(PoliciesGuard)
 @ApiBearerAuth()
@@ -131,14 +143,14 @@ import { FeaturePageResponseDto } from './dto/feature-page-response.dto';
 @Controller('features')
 export class FeatureController {
   constructor(private readonly featureService: FeatureService) {}
-  @ApiOperation({ summary: 'Listar features' })
+  @ApiOperation({ operationId: 'listFeatures', summary: 'Listar features' })
   @ApiOkResponse({ type: FeaturePageResponseDto })
   @CheckPolicies((ability) => ability.can(Action.Read, FeatureEntity))
   @Get()
-  async findAll(@CurrentUser() user: AuthUser, @Query() query: PageQueryDto) {
-    return this.featureService.findAll(user, query.page, query.perPage);
+  async findAll(@CurrentUser() user: AuthUser, @Query() query: FeatureQueryDto) {
+    return this.featureService.findAll(user, query);
   }
-  @ApiOperation({ summary: 'Buscar feature por id' })
+  @ApiOperation({ operationId: 'getFeature', summary: 'Buscar feature por id' })
   @ApiOkResponse({ type: FeatureResponseDto })
   @CheckPolicies((ability) => ability.can(Action.Read, FeatureEntity))
   @Get(':id')
@@ -146,7 +158,7 @@ export class FeatureController {
     const entity = await this.featureService.findOne(id, user);
     return FeatureResponseDto.fromEntity(entity);
   }
-  @ApiOperation({ summary: 'Criar feature' })
+  @ApiOperation({ operationId: 'createFeature', summary: 'Criar feature' })
   @ApiOkResponse({ type: FeatureResponseDto })
   @CheckPolicies((ability) => ability.can(Action.Create, FeatureEntity))
   @Post()
@@ -154,7 +166,7 @@ export class FeatureController {
     const entity = await this.featureService.create(dto, user);
     return FeatureResponseDto.fromEntity(entity);
   }
-  @ApiOperation({ summary: 'Atualizar feature' })
+  @ApiOperation({ operationId: 'updateFeature', summary: 'Atualizar feature' })
   @ApiOkResponse({ type: FeatureResponseDto })
   @CheckPolicies((ability) => ability.can(Action.Update, FeatureEntity))
   @Put(':id')
@@ -166,7 +178,7 @@ export class FeatureController {
     const entity = await this.featureService.update(id, dto, user);
     return FeatureResponseDto.fromEntity(entity);
   }
-  @ApiOperation({ summary: 'Remover feature' })
+  @ApiOperation({ operationId: 'deleteFeature', summary: 'Remover feature' })
   @CheckPolicies((ability) => ability.can(Action.Delete, FeatureEntity))
   @HttpCode(204)
   @Delete(':id')
@@ -176,26 +188,29 @@ export class FeatureController {
 }
 ```
 
-Notas:
-
+- Todo `@ApiOperation` tem `operationId` em camelCase (`listFeatures`, `getFeature`, `createFeature`, `updateFeature`, `deleteFeature`): o Orval do frontend gera os nomes dos hooks a partir dele (`useListFeatures`, `useGetFeature`...). Sem ele, os nomes saem do método HTTP + path e mudam a cada refatoração.
+- Autenticação vem do `JwtAuthGuard` global (`APP_GUARD`, ver `security.md`, regra 1), que roda antes do `PoliciesGuard` e preenche `req.user`; sem ele o `PoliciesGuard` não tem usuário para avaliar.
 - Ajuste ao decorator do boilerplate: `@CheckPolicies`, `Action` e os caminhos de import acima seguem o formato esperado do módulo CASL; use a assinatura que o boilerplate do projeto já define.
 - `@CurrentUser()` vem do módulo de auth do boilerplate (ajuste o nome se for diferente). `AuthUser` é a interface mínima do usuário autenticado: `export interface AuthUser { id: string }`.
-
 - A política CASL decide se a ação é permitida para o tipo; a checagem de dono é feita no service, com `ownerId`.
-- `PageQueryDto` usa `@Type(() => Number)`, `@IsInt()`, `@Min(1)` e `@Max(100)` em `page` e `perPage`.
+- `PageQueryDto` usa `@ApiPropertyOptional()`, `@Type(() => Number)`, `@IsInt()`, `@Min(1)` e `@Max(100)` em `page` e `perPage`, com default (`page = 1`, `perPage = 10`).
 
 ## Service
 
 ```typescript
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, ILike, QueryFailedError, Repository } from 'typeorm';
 import { AuthUser } from '@/auth/interfaces/auth-user.interface';
 import { FeatureEntity } from './feature.entity';
 import { CreateFeatureDto } from './dto/create-feature.dto';
 import { UpdateFeatureDto } from './dto/update-feature.dto';
 import { FeatureResponseDto } from './dto/feature-response.dto';
 import { FeaturePageResponseDto } from './dto/feature-page-response.dto';
+import { FeatureQueryDto } from './dto/feature-query.dto';
+
+const UNIQUE_VIOLATION = '23505';
+const escapeLike = (value: string): string => value.replace(/[\\%_]/g, '\\$&');
 
 @Injectable()
 export class FeatureService {
@@ -204,10 +219,13 @@ export class FeatureService {
     private readonly repository: Repository<FeatureEntity>,
   ) {}
 
-  async findAll(user: AuthUser, page: number, perPage: number): Promise<FeaturePageResponseDto> {
+  async findAll(user: AuthUser, query: FeatureQueryDto): Promise<FeaturePageResponseDto> {
+    const { page, perPage, search } = query;
     const take = Math.min(perPage, 100);
+    const where: FindOptionsWhere<FeatureEntity> = { ownerId: user.id };
+    if (search) where.name = ILike(`%${escapeLike(search)}%`);
     const [entities, total] = await this.repository.findAndCount({
-      where: { ownerId: user.id },
+      where,
       order: { createdAt: 'DESC', id: 'ASC' },
       skip: (page - 1) * take,
       take,
@@ -224,42 +242,40 @@ export class FeatureService {
 
   async create(dto: CreateFeatureDto, user: AuthUser): Promise<FeatureEntity> {
     const entity = this.repository.create({ ...dto, ownerId: user.id });
-    return this.repository.save(entity);
+    return this.saveUnique(entity);
   }
 
   async update(id: string, dto: UpdateFeatureDto, user: AuthUser): Promise<FeatureEntity> {
     const entity = await this.findOne(id, user);
     Object.assign(entity, dto);
-    return this.repository.save(entity);
+    return this.saveUnique(entity);
   }
 
   async remove(id: string, user: AuthUser): Promise<void> {
     const entity = await this.findOne(id, user);
     await this.repository.softDelete(entity.id);
   }
+
+  private async saveUnique(entity: FeatureEntity): Promise<FeatureEntity> {
+    try {
+      return await this.repository.save(entity);
+    } catch (error) {
+      const code = error instanceof QueryFailedError ? (error.driverError as { code?: string }).code : undefined;
+      if (code === UNIQUE_VIOLATION) throw new ConflictException('Já existe um registro com este nome');
+      throw error;
+    }
+  }
 }
 ```
 
 - Registro de outro dono responde `NotFoundException`, igual a inexistente: não revela que o id existe.
 - `Object.assign` só é seguro com `whitelist` ativo e DTO sem campos privilegiados.
+- A busca vai como parâmetro (`ILike` gera `ILIKE $1`); `escapeLike` neutraliza `%` e `_` digitados, para o usuário não montar curingas.
+- Violação do unique parcial (`23505`) vira `409 Conflict` com mensagem fixa, nunca o erro do banco.
 
 ## Module
 
-```typescript
-import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { FeatureController } from './feature.controller';
-import { FeatureService } from './feature.service';
-import { FeatureEntity } from './feature.entity';
-
-@Module({
-  imports: [TypeOrmModule.forFeature([FeatureEntity])],
-  controllers: [FeatureController],
-  providers: [FeatureService],
-  exports: [FeatureService],
-})
-export class FeatureModule {}
-```
+`feature.module.ts` registra `TypeOrmModule.forFeature([FeatureEntity])` em `imports`, o controller e o service; só exporte o service se outro módulo o usar.
 
 ## main.ts
 
@@ -284,7 +300,7 @@ async function bootstrap(): Promise<void> {
   );
   if (config.get<string>('NODE_ENV') !== 'production') {
     const swaggerConfig = new DocumentBuilder().setTitle('API').addBearerAuth().build();
-    SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, swaggerConfig));
+    SwaggerModule.setup('api', app, SwaggerModule.createDocument(app, swaggerConfig));
   }
 
   await app.listen(config.get<number>('PORT') ?? 3000);
@@ -294,7 +310,7 @@ bootstrap();
 ```
 
 - Não ative `enableImplicitConversion` no `transform`; em DTOs de query converta explicitamente com `@Type(() => Number)`.
-- `CORS_ORIGINS` é uma lista separada por vírgula; nunca `origin: true` com `credentials`. Swagger só fora de produção.
+- `CORS_ORIGINS` é uma lista separada por vírgula; nunca `origin: true` com `credentials`. Swagger só fora de produção, em `/api` com o JSON em `/api-json` (de onde o Orval do frontend lê).
 
 ## Configuração
 
@@ -317,9 +333,7 @@ ConfigModule.forRoot({ isGlobal: true, validate });
 
 A aplicação falha no boot com configuração inválida. Estenda `validate` às demais variáveis obrigatórias.
 
-Variáveis de ambiente:
-
-`DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `CORS_ORIGINS`, `MAIL_HOST`, `MAIL_USER`, `MAIL_PASS`, `STORAGE_PROVIDER` (`gcs` ou `s3`).
+Variáveis de ambiente: `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `CORS_ORIGINS`, `MAIL_HOST`, `MAIL_USER`, `MAIL_PASS`, `STORAGE_PROVIDER` (`gcs` ou `s3`).
 
 ## Testes
 
@@ -380,6 +394,9 @@ describe('FeatureService', () => {
     await expect(service.findOne('feature-1', { id: 'user-2' })).rejects.toThrow(
       NotFoundException,
     );
+    expect(repositoryMock.findOne).toHaveBeenCalledWith({
+      where: { id: 'feature-1', ownerId: 'user-2' },
+    });
   });
 });
 ```
@@ -420,24 +437,12 @@ describe('FeatureController (e2e)', () => {
 Cobertura mínima no `package.json`:
 
 ```json
-"jest": {
-  "coverageThreshold": { "global": { "lines": 80, "branches": 80 } }
-}
+"jest": { "coverageThreshold": { "global": { "lines": 80, "branches": 80 } } }
 ```
 
 ## Comandos úteis
 
-```bash
-pnpm start:dev            # servidor de desenvolvimento
-pnpm build                # build
-pnpm test                 # testes (Jest)
-pnpm test:cov             # testes com cobertura
-pnpm migration:generate   # gera migration a partir das entities
-pnpm migration:run        # aplica migrations pendentes
-pnpm audit                # vulnerabilidades (deve ficar zerado)
-pnpm seed                 # seeders
-pnpm make:entity          # scaffold de entity
-```
+`pnpm start:dev`, `pnpm build`, `pnpm test`, `pnpm test:cov`, `pnpm migration:generate`, `pnpm migration:run`, `pnpm seed`, `pnpm make:entity` e `pnpm audit` (deve ficar zerado).
 
 Sem os scripts de migration no `package.json`, use a CLI do TypeORM:
 `pnpm typeorm migration:generate src/database/migrations/Nome -d src/database/data-source.ts` e `pnpm typeorm migration:run -d src/database/data-source.ts`.

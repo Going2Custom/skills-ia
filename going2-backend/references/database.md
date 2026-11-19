@@ -8,7 +8,7 @@ Regras de TypeORM + PostgreSQL para entities, queries e migrations. Templates co
 **Motivo:** o PostgreSQL não cria índice em FK automaticamente, e joins e filtros por dono viram varredura da tabela inteira.
 
 ```typescript
-@Entity('feature')
+@Entity('features')
 export class FeatureEntity extends EntityBase {
   @Index()
   @Column({ name: 'owner_id', type: 'uuid' })
@@ -26,13 +26,15 @@ export class FeatureEntity extends EntityBase {
 **Motivo:** um unique comum impede recadastrar o e-mail de um registro apagado logicamente.
 
 ```typescript
-@Entity('user')
+@Entity('users')
 @Index(['email'], { unique: true, where: '"deleted_at" IS NULL' })
 export class UserEntity extends EntityBase {
   @Column({ type: 'varchar', length: 255 })
   email: string;
 }
 ```
+
+Em dado por dono, a unicidade é por dono: `@Index(['ownerId', 'name'], { unique: true, where: '"deleted_at" IS NULL' })`, como na entity de `patterns.md`. No service, capture `QueryFailedError` com código `23505` e lance `ConflictException('Já existe um registro com este nome')`, sem repassar a mensagem do banco.
 
 ## 3. Datas em `timestamptz`
 
@@ -141,11 +143,11 @@ TypeOrmModule.forRootAsync({
 ```typescript
 export class AddFeatureOwnerIndex1700000000000 implements MigrationInterface {
   async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query('CREATE INDEX "IDX_feature_owner_id" ON "feature" ("owner_id")');
+    await queryRunner.query('CREATE INDEX "IDX_features_owner_id" ON "features" ("owner_id")');
   }
 
   async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query('DROP INDEX "IDX_feature_owner_id"');
+    await queryRunner.query('DROP INDEX "IDX_features_owner_id"');
   }
 }
 ```
