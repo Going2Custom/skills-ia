@@ -92,18 +92,19 @@ Conferido na documentação atual do Auth.js: a assinatura é `redirect({ url, b
 
 ## 4. Tokens na sessão, nunca em `localStorage`
 
-`localStorage` é legível por qualquer script da página: um XSS leva o token. A sessão do Auth.js fica em cookie `httpOnly`, `Secure` e `SameSite`. O callback `session` devolve ao cliente só `id`, `name`, `email` e `role`; o `role` serve apenas para UX (regra 5).
+`localStorage` é legível por qualquer script da página: um XSS leva o token. A sessão do Auth.js fica em cookie `httpOnly`, `Secure` e `SameSite`. O `accessToken` da API fica só no JWT da sessão (criptografado no cookie); o callback `session` devolve ao cliente apenas `id`, `name`, `email` e `role`, e o `role` serve só para UX (regra 5).
 
 ```ts
 // errado
 localStorage.setItem('token', accessToken);
 
-// certo: auth.ts
+// certo: auth.ts (o authorize do Credentials devolve id, role e o accessToken do login no backend)
 callbacks: {
   jwt({ token, user }) {
-    if (user) {
+    if (user?.id) {
       token.id = user.id;
       token.role = user.role;
+      token.accessToken = user.accessToken;
     }
     return token;
   },
@@ -115,30 +116,66 @@ callbacks: {
 },
 ```
 
-O mutator do Axios em `patterns.md` não envia o token, e o padrão é que ele nunca chegue ao JavaScript do cliente. Duas formas, ambas lendo o token com `auth()` no servidor (ajuste ao boilerplate):
-
-- Route Handler como proxy: o cliente chama `/api/proxy/...` (mesma origem, cookie de sessão), o handler lê o token da sessão e repassa à API com `Authorization`.
-- Chamada feita no servidor (Server Action ou Route Handler) que repassa o token.
+Tipos sem `any`, por module augmentation (`types/next-auth.d.ts`):
 
 ```ts
-// app/api/proxy/[...path]/route.ts
-import { auth } from '@/auth';
+import type { DefaultSession } from 'next-auth';
+import 'next-auth/jwt';
 
-export async function GET(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
-  const session = await auth();
-  if (!session) return Response.json({ message: 'Não autenticado' }, { status: 401 });
+declare module 'next-auth' {
+  interface User {
+    role: string;
+    accessToken: string;
+  }
+  interface Session {
+    user: { id: string; role: string } & DefaultSession['user'];
+  }
+}
 
-  const { path } = await params;
-  const { search } = new URL(request.url);
-  return fetch(`${process.env.API_URL}/${path.join('/')}${search}`, {
-    headers: { Authorization: `Bearer ${session.accessToken}` },
-  });
+declare module 'next-auth/jwt' {
+  interface JWT {
+    id: string;
+    role: string;
+    accessToken: string;
+  }
 }
 ```
 
-Aponte o `baseURL` do `AXIOS_INSTANCE` para `/api/proxy` nesse modelo. Aqui `session.accessToken` é lido no servidor a partir do JWT; ele só chega ao cliente se o callback `session` o repassar (não repasse).
+O mutator do Axios em `patterns.md` não envia o token, e o padrão é que ele nunca chegue ao JavaScript do cliente. O cliente chama `/api/proxy/...` (mesma origem, cookie de sessão) e um Route Handler lê o JWT no servidor com `getToken` (de `next-auth/jwt`), repassando o token à API com `Authorization`. `auth()` não serve aqui: ele devolve a saída do callback `session`, que não tem o token.
 
-**Nota de hardening (trade-off):** se o boilerplate já chama a API direto do navegador com Bearer, o token precisa estar na sessão do cliente. Isso o deixa legível por scripts da página (um XSS o leva), então prefira o proxy. Se mantiver o interceptor, o callback `session` passa a repassar `session.accessToken = token.accessToken`, e a sessão é cacheada em vez de buscada a cada request:
+```ts
+// app/api/proxy/[...path]/route.ts
+import { getToken } from 'next-auth/jwt';
+import type { NextRequest } from 'next/server';
+
+const DROPPED_HEADERS = ['content-encoding', 'content-length', 'transfer-encoding'];
+
+async function proxy(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  if (!token?.accessToken) return Response.json({ message: 'Não autenticado' }, { status: 401 });
+
+  const { path } = await params;
+  const headers = new Headers({ Authorization: `Bearer ${token.accessToken}` });
+  const contentType = request.headers.get('content-type');
+  if (contentType) headers.set('content-type', contentType);
+
+  const upstream = await fetch(`${process.env.API_URL}/${path.join('/')}${request.nextUrl.search}`, {
+    method: request.method,
+    headers,
+    body: ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer(),
+  });
+
+  const responseHeaders = new Headers(upstream.headers);
+  DROPPED_HEADERS.forEach((name) => responseHeaders.delete(name));
+  return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+}
+
+export { proxy as GET, proxy as POST, proxy as PUT, proxy as PATCH, proxy as DELETE };
+```
+
+Aponte o `baseURL` do `AXIOS_INSTANCE` para `/api/proxy` nesse modelo. Os headers removidos descrevem o corpo original: o `fetch` já o descomprimiu, e repassá-los quebra a resposta. Use `AUTH_SECRET` em `secret` se o projeto segue os nomes `AUTH_*`; atrás de proxy HTTPS que termina TLS, passe `secureCookie: true` se `getToken` devolver `null`. Chamadas feitas no servidor (Server Action) usam o mesmo `getToken` ou leem o token dentro do próprio handler.
+
+**Nota de hardening (trade-off):** se o boilerplate já chama a API direto do navegador com Bearer, o token precisa estar na sessão do cliente. Isso o deixa legível por scripts da página (um XSS o leva), então prefira o proxy. Se mantiver o interceptor, o callback `session` passa a repassar `session.accessToken = token.accessToken` (declare `accessToken` também em `Session`), e a sessão é cacheada em vez de buscada a cada request:
 
 ```ts
 import { getSession } from 'next-auth/react';

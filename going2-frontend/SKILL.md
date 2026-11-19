@@ -69,7 +69,7 @@ src/gen/                      # Gerado pelo Orval — nunca editar à mão
 
 - Componentes **devem** separar o visual (`index.tsx`) da lógica (`useComponentName.tsx`).
 - `index.tsx` sempre começa com `'use client'` e contém só JSX.
-- Formulários sempre usam React Hook Form + Zod com `zodResolver`, usando o schema gerado pelo Orval.
+- Formulários sempre usam React Hook Form + Zod com `zodResolver`, usando o schema gerado pelo Orval; mensagens em português via locale do Zod configurado uma vez (`z.config`).
 - Feedback ao usuário via `sonner`: `toast.loading` → `toast.success` / `toast.error` com o mesmo `id`.
 - Use `cn()` de `@/lib/utils` para mesclar classes do Tailwind.
 - shadcn/ui primeiro: nunca HTML cru para elementos de UI que o shadcn já cobre.
@@ -103,7 +103,7 @@ Detalhes e exemplos em `references/security.md`.
 1. Nada sensível em `NEXT_PUBLIC_*`.
 2. `dangerouslySetInnerHTML` proibido (DOMPurify só se inevitável); valide o esquema de URLs em `href`/`src`.
 3. `callbackUrl`/`next` só relativos ou de origem permitida (callback `redirect` do NextAuth).
-4. Tokens na sessão do NextAuth (cookie httpOnly/Secure/SameSite), nunca em `localStorage`; exponha ao cliente só o necessário.
+4. Tokens no JWT da sessão do NextAuth (cookie httpOnly/Secure/SameSite), nunca em `localStorage` nem no objeto `session`; a API é chamada por um proxy (Route Handler com `getToken`).
 5. Autorização é do backend; esconder UI é só UX.
 6. Zod valida a entrada de Server Actions e Route Handlers; Server Actions sempre checam auth.
 7. Headers e CSP no `next.config`: CSP sem `unsafe-eval`, `frame-ancestors`, `nosniff`, `Referrer-Policy`.

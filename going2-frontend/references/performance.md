@@ -1,6 +1,6 @@
 # Performance — Referência
 
-Seis regras de React e Next que pegam a maior parte dos problemas reais. Exemplos usam `Feature` genérico; os componentes completos estão em `patterns.md`.
+Sete regras de React e Next que pegam a maior parte dos problemas reais. Exemplos usam `Feature` genérico; os componentes completos estão em `patterns.md`.
 
 ## 1. Importe só o que usa de pacotes com muitos exports
 
@@ -117,10 +117,10 @@ Props de Server Component para Client Component são serializadas no HTML; objet
 
 ```tsx
 // errado: a sessão inteira desce para o cliente
-<FeatureList session={session} />
+<FeatureHeader session={session} />
 
 // certo
-<FeatureList userId={session.user.id} />
+<FeatureHeader userName={session.user.name} />
 ```
 
 Na lista, mapeie para o que a linha usa (`select` do TanStack Query ou o próprio DTO de resposta enxuto do backend) em vez de repassar objetos grandes por vários níveis.

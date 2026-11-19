@@ -10,6 +10,7 @@ Sempre dois arquivos em `components/(features)/feature-list/`.
 ```tsx
 'use client';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -38,13 +39,13 @@ export function FeatureList() {
       ) : (
         <Table data-testid="feature-table">
           <TableHeader>
-            <TableRow><TableHead>Nome</TableHead><TableHead>Status</TableHead></TableRow>
+            <TableRow><TableHead>Nome</TableHead><TableHead>Situação</TableHead></TableRow>
           </TableHeader>
           <TableBody>
             {list.features.map((feature) => (
               <TableRow key={feature.id} data-testid={`feature-row-${feature.id}`}>
                 <TableCell>{feature.name}</TableCell>
-                <TableCell>{feature.status}</TableCell>
+                <TableCell><Badge variant={feature.isActive ? 'default' : 'secondary'}>{feature.isActive ? 'Ativa' : 'Inativa'}</Badge></TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -77,7 +78,6 @@ export const useFeatureList = () => {
     page: filters.page,
     perPage: PER_PAGE,
     search: search || undefined,
-    status: filters.status ?? undefined,
   });
 
   return {
@@ -110,11 +110,7 @@ export default async function FeaturesPage() {
   const session = await auth();
   if (!session?.user) redirect('/login');
 
-  return (
-    <main className="container py-6">
-      <FeatureList />
-    </main>
-  );
+  return <main className="container py-6"><FeatureList /></main>;
 }
 ```
 
@@ -199,7 +195,13 @@ export function FeatureForm() {
 }
 ```
 
-As mensagens de validação vêm do schema gerado (reflexo dos decorators do backend, em português); não redeclare o schema à mão.
+O schema gerado reflete só as restrições do OpenAPI (obrigatório, `minLength`, `maxLength`); as mensagens do class-validator não vão para o Swagger, então o Zod usa as mensagens padrão dele, em inglês. Não redeclare o schema à mão: configure o locale do Zod uma vez, em `lib/zod-locale.ts`, importado no provider cliente raiz (`app/providers.tsx`) e em código de servidor que valida com o schema:
+
+```ts
+import { z } from 'zod';
+
+z.config(z.locales.ptBR());
+```
 
 ## Orval
 
@@ -235,7 +237,7 @@ export default defineConfig({
 });
 ```
 
-O `fileExtension: '.zod.ts'` evita conflito de nome com os arquivos do client HTTP. O Swagger fica fechado em produção; gere sempre a partir do ambiente de desenvolvimento do nosso backend.
+O `fileExtension: '.zod.ts'` evita conflito de nome com os arquivos do client HTTP. O backend publica o spec em `/api-json` (`SwaggerModule.setup('api', ...)`), fechado em produção; gere sempre a partir do ambiente de desenvolvimento do nosso backend.
 
 `app/services/api.ts` — o mutator recebe a config do request e devolve só o corpo da resposta:
 
@@ -250,12 +252,12 @@ export const customInstance = <T>(config: AxiosRequestConfig, options?: AxiosReq
 export type ErrorType<Error> = AxiosError<Error>;
 ```
 
-O que é gerado e onde, com a tag `features` e operações `listFeatures` e `createFeature`:
+O que é gerado e onde, com a tag `features` e os `operationId` do backend (`listFeatures`, `getFeature`, `createFeature`, `updateFeature`, `deleteFeature`):
 | Arquivo | Conteúdo |
 |---|---|
-| `src/gen/endpoints/features/features.ts` | Funções de API e hooks: `useListFeatures`, `useCreateFeature`, `getListFeaturesQueryKey` |
+| `src/gen/endpoints/features/features.ts` | Funções e hooks: `useListFeatures`, `useGetFeature`, `useCreateFeature`, `useUpdateFeature`, `useDeleteFeature`, `getListFeaturesQueryKey` |
 | `src/gen/endpoints/features/features.zod.ts` | Schemas Zod: `CreateFeatureBody`, `ListFeaturesQueryParams`, `ListFeaturesResponse` |
-| `src/gen/model/` | Tipos TypeScript dos DTOs, ex.: `FeatureResponseDto`, com `index.ts` |
+| `src/gen/model/` | Tipos dos DTOs e dos params, ex.: `FeatureResponseDto`, `ListFeaturesParams` (`page`, `perPage`, `search`) |
 
 Nomes dos schemas Zod: `{Operacao}Body`, `{Operacao}QueryParams`, `{Operacao}Params` (path) e `{Operacao}Response`, em PascalCase a partir do `operationId`.
 
@@ -264,19 +266,13 @@ Nomes dos schemas Zod: `{Operacao}Body`, `{Operacao}QueryParams`, `{Operacao}Par
 - Mutation: `useCreateFeature()` devolve a mutation do TanStack Query; chame `mutateAsync({ data })` com o corpo tipado.
 - Por causa do mutator, a resposta vem sem o envelope do Axios: `data?.data` e `data?.meta` no formato `{ data, meta: { page, perPage, total } }`.
 
-Import correto por tag:
-```ts
-import { useListFeatures } from '@/src/gen/endpoints/features/features';
-import { CreateFeatureBody } from '@/src/gen/endpoints/features/features.zod';
-```
-
-Nunca importe de `@/src/gen/api` nem de `api.zod`: com `tags-split` esses arquivos não existem, há um por tag. Schemas Zod são constantes, não hooks: use `CreateFeatureBody` direto no `zodResolver`.
+Importe por tag (`@/src/gen/endpoints/features/features` e `.../features.zod`). Nunca importe de `@/src/gen/api` nem de `api.zod`: com `tags-split` esses arquivos não existem, há um por tag. Schemas Zod são constantes, não hooks: use `CreateFeatureBody` direto no `zodResolver`.
 
 Rode `pnpm orval` quando o Swagger do backend mudar (endpoint novo, DTO alterado, campo renomeado) e commite `src/gen/` junto com o código que usa a mudança. Nunca edite `src/gen/` à mão: a próxima geração apaga a edição.
 
 ## Estado na URL (nuqs)
 
-Filtros, busca, paginação, abas e ordenação vivem na URL, não em `useState`. O `NuqsAdapter` entra uma vez no layout raiz.:
+Filtros, busca, paginação, abas e ordenação vivem na URL, não em `useState`. O `NuqsAdapter` entra uma vez no layout raiz:
 
 ```tsx
 // app/layout.tsx (Server Component)
@@ -288,14 +284,11 @@ import { NuqsAdapter } from 'nuqs/adapters/next/app';
 `useFeatureFilters.tsx` agrupa os filtros com parsers tipados. Paginação usa `history: 'push'` (o voltar do navegador troca de página); busca digitada usa `'replace'` com `limitUrlUpdates: throttle(...)` para não poluir o histórico nem sobrecarregar a URL:
 
 ```tsx
-import { parseAsInteger, parseAsString, parseAsStringLiteral, throttle, useQueryStates } from 'nuqs';
-
-const FEATURE_STATUSES = ['active', 'inactive'] as const;
+import { parseAsInteger, parseAsString, throttle, useQueryStates } from 'nuqs';
 
 const featureFilters = {
   page: parseAsInteger.withDefault(1).withOptions({ history: 'push' }),
   search: parseAsString.withDefault('').withOptions({ history: 'replace', limitUrlUpdates: throttle(300) }),
-  status: parseAsStringLiteral(FEATURE_STATUSES).withOptions({ history: 'push' }),
 };
 
 export const useFeatureFilters = () => useQueryStates(featureFilters);
@@ -306,7 +299,7 @@ Pontos de uso (`useQueryState('chave', parser)` serve para um parâmetro só; `u
 - Ao mudar qualquer filtro, volte `page` para 1 na mesma chamada. Como a documentação não define como `push` e `replace` por chave se resolvem num mesmo update, passe `{ history: 'replace' }` no nível da chamada ao digitar (opção de chamada vence a do parser): `setFilters({ search: value, page: 1 }, { history: 'replace' })`, já feito em `useFeatureList`.
 - O estado devolvido pelo hook atualiza na hora; só a escrita na URL é limitada. Como a listagem é buscada no cliente (TanStack Query), aplique também debounce no valor enviado ao hook do Orval (`useDebouncedValue`), senão cada tecla dispara um request.
 - O padrão `shallow: true` não dispara request ao servidor ao mudar a URL, o que é o desejado (os dados vêm do TanStack Query). Valor inválido na URL vira `null` ou o default; para limpar tudo, `setFilters(null)`.
-- Só passe ao hook do Orval filtros que o Swagger expõe; confira `ListFeaturesQueryParams`.
+- Só passe ao hook do Orval filtros que o Swagger expõe (`FeatureQueryDto` no backend); confira `ListFeaturesParams`.
 
 ## Testes
 
@@ -340,7 +333,9 @@ const createWrapper = (searchParams: string) => {
 };
 
 describe('useFeatureList', () => {
-  beforeEach(() => vi.mocked(useListFeatures).mockReturnValue(listResult));
+  beforeEach(() => {
+    vi.mocked(useListFeatures).mockReturnValue(listResult);
+  });
 
   it('volta para a página 1 ao buscar', async () => {
     const { result } = renderHook(() => useFeatureList(), { wrapper: createWrapper('?page=3') });
@@ -390,7 +385,7 @@ Cypress cobre os fluxos principais, sempre por `data-testid` (comando customizad
 // cypress/e2e/feature/feature.cy.ts
 describe('Funcionalidades', () => {
   it('cria uma funcionalidade', () => {
-    cy.login('admin@example.com', 'admin123');
+    cy.login(Cypress.env('E2E_EMAIL'), Cypress.env('E2E_PASSWORD'));
     cy.visit('/features');
     cy.get('[data-testid="feature-form-name"]').type('Nova funcionalidade');
     cy.get('[data-testid="feature-form-submit"]').click();
@@ -403,12 +398,14 @@ describe('Funcionalidades', () => {
 
 ```ts
 import react from '@vitejs/plugin-react';
+import tsconfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [tsconfigPaths(), react()],
   test: {
     environment: 'jsdom',
+    setupFiles: ['./vitest.setup.ts'],
     coverage: {
       provider: 'v8',
       exclude: ['src/gen/**', '**/*.test.{ts,tsx}'],
@@ -416,6 +413,16 @@ export default defineConfig({
     },
   },
 });
+```
+
+`vitest.setup.ts` — sem `globals`, a limpeza do Testing Library não é automática. `vite-tsconfig-paths` resolve o alias `@/` do `tsconfig.json`; `jsdom` e `@testing-library/jest-dom` entram como dependências de desenvolvimento:
+
+```ts
+import '@testing-library/jest-dom/vitest';
+import { cleanup } from '@testing-library/react';
+import { afterEach } from 'vitest';
+
+afterEach(cleanup);
 ```
 
 ## Tailwind
@@ -431,19 +438,11 @@ Sempre `cn()` (de `@/lib/utils`) para combinar classes condicionais e a `classNa
 NEXTAUTH_URL=
 NEXTAUTH_SECRET=
 NEXT_PUBLIC_API_URL=
+API_URL=
 SWAGGER_URL=
 ```
 
-`NEXT_PUBLIC_*` é público no bundle: só URLs e flags sem segredo. `NEXTAUTH_SECRET` nunca leva o prefixo `NEXT_PUBLIC_`. Siga os nomes de variável que o projeto já usa (ex.: `AUTH_*`).
+`NEXT_PUBLIC_*` é público no bundle: só URLs e flags sem segredo. `API_URL` é a URL da API vista pelo servidor (proxy de `security.md`). `NEXTAUTH_SECRET` nunca leva o prefixo `NEXT_PUBLIC_`. Siga os nomes de variável que o projeto já usa (ex.: `AUTH_*`).
 
 ## Comandos úteis
-
-```bash
-pnpm dev              # Desenvolvimento
-pnpm build && pnpm lint  # Build e lint
-pnpm test             # Vitest
-pnpm test --coverage  # Vitest com cobertura e thresholds
-pnpm cy:run           # Cypress headless (cy:open: interativo)
-pnpm orval            # Regenerar src/gen a partir do Swagger
-pnpm audit            # Deve retornar zero vulnerabilidades
-```
+`pnpm dev`, `pnpm build && pnpm lint`, `pnpm test` (Vitest), `pnpm test --coverage` (com thresholds), `pnpm cy:run` (Cypress headless; `cy:open` interativo), `pnpm orval` (regenera `src/gen`) e `pnpm audit` (deve retornar zero vulnerabilidades).
