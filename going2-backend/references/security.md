@@ -42,13 +42,13 @@ const feature = await this.featureRepository.findOne({ where: { id } });
 const feature = await this.featureRepository.findOne({ where: { id, ownerId: user.id } });
 if (!feature) throw new NotFoundException('Registro não encontrado');
 
-// certo: CASL na instância
-if (!ability.can(Action.Update, subject('Feature', feature))) {
+// certo: CASL na instância (feature é um FeatureEntity carregado do banco)
+if (!ability.can(Action.Update, feature)) {
   throw new ForbiddenException('Sem permissão para alterar este registro');
 }
 ```
 
-`subject()` vem de `@casl/ability` e marca um objeto simples com o tipo; para instância de classe da entity, o CASL já detecta o tipo pelo construtor. Devolver 404 em vez de 403 evita revelar que o id existe.
+Para instância de classe da entity, o CASL detecta o tipo pelo construtor, então `ability.can(Action.Update, feature)` casa com as regras definidas contra `FeatureEntity`. Só para objeto simples (ex.: resultado de `query()` ou DTO) use `subject('Feature', plainObject)` de `@casl/ability`, com a string igual ao tipo usado ao definir a habilidade. Devolver 404 em vez de 403 evita revelar que o id existe.
 
 ## 3. Validação de entrada e campos privilegiados
 

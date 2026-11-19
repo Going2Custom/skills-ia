@@ -162,16 +162,15 @@ Gere a migration com a CLI do TypeORM e revise o SQL antes de commitar. Em tabel
 qb.where(`f.name = '${name}'`).orderBy(`f.${sortBy}`, direction);
 
 // certo
-const SORTABLE = ['name', 'createdAt'] as const;
-type SortableField = (typeof SORTABLE)[number];
+const SORT_COLUMNS = { name: 'f.name', createdAt: 'f.createdAt' } as const;
 
-const field: SortableField = SORTABLE.find((item) => item === sortBy) ?? 'createdAt';
-const order = direction === 'ASC' ? 'ASC' : 'DESC';
+const field: keyof typeof SORT_COLUMNS = sortBy === 'name' ? 'name' : 'createdAt';
+const order: 'ASC' | 'DESC' = direction === 'ASC' ? 'ASC' : 'DESC';
 
-qb.where('f.name = :name', { name }).orderBy(`f.${field}`, order);
+qb.where('f.name = :name', { name }).orderBy(SORT_COLUMNS[field], order);
 ```
 
-O template string no `orderBy` acima é seguro porque `field` só pode ser um item da allowlist. Prefira também validar `sortBy` no DTO com `@IsIn(SORTABLE)`.
+O `orderBy` recebe sempre um literal do mapa, nunca texto montado a partir do input. Valide também `sortBy` no DTO com `@IsIn(Object.keys(SORT_COLUMNS))`.
 
 ## Fora do escopo
 
