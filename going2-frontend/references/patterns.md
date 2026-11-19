@@ -88,9 +88,9 @@ export const useFeatureList = () => {
     isError,
     hasPreviousPage: filters.page > 1,
     hasNextPage: filters.page * PER_PAGE < (data?.meta.total ?? 0),
-    onSearchChange: (value: string) => setFilters({ search: value, page: 1 }),
-    onPreviousPage: () => setFilters({ page: filters.page - 1 }),
-    onNextPage: () => setFilters({ page: filters.page + 1 }),
+    onSearchChange: (value: string) => void setFilters({ search: value, page: 1 }, { history: 'replace' }),
+    onPreviousPage: () => void setFilters({ page: filters.page - 1 }),
+    onNextPage: () => void setFilters({ page: filters.page + 1 }),
     onRetry: () => void refetch(),
   };
 };
@@ -303,7 +303,7 @@ export const useFeatureFilters = () => useQueryStates(featureFilters);
 
 Pontos de uso (`useQueryState('chave', parser)` serve para um parâmetro só; `useQueryStates` atualiza vários numa única navegação):
 
-- Ao mudar qualquer filtro, volte `page` para 1 na mesma chamada: `setFilters({ search: value, page: 1 })` (já feito em `useFeatureList`).
+- Ao mudar qualquer filtro, volte `page` para 1 na mesma chamada. Como a documentação não define como `push` e `replace` por chave se resolvem num mesmo update, passe `{ history: 'replace' }` no nível da chamada ao digitar (opção de chamada vence a do parser): `setFilters({ search: value, page: 1 }, { history: 'replace' })`, já feito em `useFeatureList`.
 - O estado devolvido pelo hook atualiza na hora; só a escrita na URL é limitada. Como a listagem é buscada no cliente (TanStack Query), aplique também debounce no valor enviado ao hook do Orval (`useDebouncedValue`), senão cada tecla dispara um request.
 - O padrão `shallow: true` não dispara request ao servidor ao mudar a URL, o que é o desejado (os dados vêm do TanStack Query). Valor inválido na URL vira `null` ou o default; para limpar tudo, `setFilters(null)`.
 - Só passe ao hook do Orval filtros que o Swagger expõe; confira `ListFeaturesQueryParams`.
@@ -342,11 +342,13 @@ const createWrapper = (searchParams: string) => {
 describe('useFeatureList', () => {
   beforeEach(() => vi.mocked(useListFeatures).mockReturnValue(listResult));
 
-  it('volta para a página 1 ao buscar', () => {
+  it('volta para a página 1 ao buscar', async () => {
     const { result } = renderHook(() => useFeatureList(), { wrapper: createWrapper('?page=3') });
     expect(useListFeatures).toHaveBeenCalledWith(expect.objectContaining({ page: 3, perPage: 10 }));
 
-    act(() => result.current.onSearchChange('abc'));
+    await act(async () => {
+      result.current.onSearchChange('abc');
+    });
     expect(result.current.search).toBe('abc');
     expect(result.current.hasPreviousPage).toBe(false);
   });
